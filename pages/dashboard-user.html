@@ -412,6 +412,21 @@
           <p class="text-sm text-on-surface-variant">Đang tải...</p>
         </div>
       </div>
+
+      <!-- ── Tiến độ học tập theo khóa ── -->
+      <div class="mt-10">
+        <div class="flex items-center gap-3 mb-5">
+          <div class="w-8 h-8 bg-secondary/10 rounded-xl flex items-center justify-center">
+            <span class="material-symbols-outlined text-secondary text-base">analytics</span>
+          </div>
+          <h2 class="font-bold text-primary text-base">Tiến độ học tập theo khóa</h2>
+        </div>
+        <div id="progress-summary-list" class="space-y-4">
+          <div class="flex items-center justify-center py-10">
+            <span class="material-symbols-outlined text-3xl text-outline-variant animate-spin">sync</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ===== LECTURES ===== -->
@@ -964,7 +979,7 @@
       if (l.getAttribute('onclick')?.includes(`'${id}'`)) l.classList.add('active');
     });
     document.getElementById('page-title').textContent = pageTitles[id] || id;
-    if (id === 'my-courses') loadMyCourses();
+    if (id === 'my-courses') { loadMyCourses(); loadProgressSummary(); }
     if (id === 'profile')    loadProfile();
   }
 
@@ -1030,7 +1045,11 @@
               <div class="h-full bg-secondary rounded-full" style="width:${pct}%"></div>
             </div>
           </div>`}
-          ${canLearn ? `
+          ${c.enroll_status === 'completed' ? `
+          <button onclick="openCompletionModal(${c.id})"
+            class="mt-auto w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors text-center">
+            Xem kết quả
+          </button>` : canLearn ? `
           <a href="course-learn.html?id=${c.id}"
             class="mt-auto w-full py-2.5 bg-secondary text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity text-center block">
             ${pct > 0 ? 'Tiếp tục học' : 'Bắt đầu học'}
@@ -1049,6 +1068,123 @@
 
       grid.innerHTML = cards + addCard;
     } catch (e) { console.error(e); }
+  }
+
+  // ── Tiến độ học tập theo khóa ─────────────────────────────────
+  const CAT_BADGE = {
+    IELTS:  'bg-blue-100 text-blue-700',
+    TOEFL:  'bg-purple-100 text-purple-700',
+    TOEIC:  'bg-green-100 text-green-700',
+  };
+
+  async function loadProgressSummary() {
+    const container = document.getElementById('progress-summary-list');
+    try {
+      const res  = await fetch('/api/user/progress-summary', { credentials: 'include' });
+      const json = await res.json();
+      if (!json.success) { container.innerHTML = ''; return; }
+      const list = json.data;
+
+      if (!list.length) {
+        container.innerHTML = `
+          <div class="bg-white rounded-2xl border border-outline-variant/30 px-6 py-10 text-center text-on-surface-variant text-sm">
+            Chưa có dữ liệu tiến độ. Hãy bắt đầu học một khóa để xem kết quả tại đây.
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = list.map((c, ci) => {
+        const typeKey  = (c.category_type || '').toUpperCase();
+        const catBadge = CAT_BADGE[typeKey] || 'bg-gray-100 text-gray-600';
+        const pct      = c.progress_percent || 0;
+        const avg      = c.avg_score;
+        const avgColor = avg === null ? 'text-on-surface-variant'
+                       : avg >= 70   ? 'text-green-600'
+                       : avg >= 50   ? 'text-accent'
+                       : 'text-error';
+
+        // Bảng điểm từng bài kiểm tra
+        const tableRows = c.test_details.length
+          ? c.test_details.map(t => {
+              const done = t.score !== null;
+              const date = done
+                ? new Date(t.submitted_at).toLocaleDateString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric' })
+                : '—';
+              const scoreTxt = done ? t.score + '%' : '—';
+              const scoreColor = !done ? 'text-on-surface-variant'
+                               : t.passed ? 'text-green-600 font-bold' : 'text-error font-bold';
+              const badge = !done
+                ? `<span class="text-xs bg-surface-low text-on-surface-variant px-2 py-0.5 rounded-full">Chưa làm</span>`
+                : t.passed
+                  ? `<span class="text-xs bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">Đạt</span>`
+                  : `<span class="text-xs bg-red-100 text-error font-semibold px-2 py-0.5 rounded-full">Chưa đạt</span>`;
+              return `
+                <tr class="hover:bg-surface/60 transition-colors">
+                  <td class="px-4 py-2.5 text-sm text-on-surface">${t.test_title}</td>
+                  <td class="px-4 py-2.5 text-sm ${scoreColor}">${scoreTxt}</td>
+                  <td class="px-4 py-2.5">${badge}</td>
+                  <td class="px-4 py-2.5 text-xs text-on-surface-variant">${date}</td>
+                </tr>`;
+            }).join('')
+          : `<tr><td colspan="4" class="px-4 py-4 text-center text-sm text-on-surface-variant">Khóa học chưa có bài kiểm tra nào.</td></tr>`;
+
+        return `
+        <div class="bg-white rounded-2xl border border-outline-variant/30 overflow-hidden">
+          <!-- Header khóa -->
+          <div class="px-5 py-4 flex items-center gap-4 border-b border-outline-variant/15">
+            <div class="flex-grow min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-xs font-semibold ${catBadge} px-2.5 py-0.5 rounded-full">${c.category_name || typeKey}</span>
+                ${c.enroll_status === 'completed'
+                  ? '<span class="text-xs bg-blue-100 text-blue-700 font-semibold px-2.5 py-0.5 rounded-full">Hoàn thành</span>'
+                  : '<span class="text-xs bg-green-100 text-green-700 font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1 w-fit"><span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>Đang học</span>'}
+              </div>
+              <h3 class="font-bold text-primary text-sm">${c.course_title}</h3>
+            </div>
+            <!-- Stats nhanh -->
+            <div class="flex items-center gap-5 shrink-0 text-center">
+              <div>
+                <p class="text-lg font-bold ${avgColor}">${avg !== null ? avg + '%' : '—'}</p>
+                <p class="text-xs text-on-surface-variant">Điểm TB</p>
+              </div>
+              <div>
+                <p class="text-lg font-bold text-secondary">${c.done_tests}/${c.total_tests}</p>
+                <p class="text-xs text-on-surface-variant">Bài đã làm</p>
+              </div>
+              <div>
+                <p class="text-lg font-bold text-green-600">${c.passed_tests}</p>
+                <p class="text-xs text-on-surface-variant">Bài đạt</p>
+              </div>
+            </div>
+          </div>
+          <!-- Thanh tiến độ -->
+          <div class="px-5 py-3 bg-surface-low/60 flex items-center gap-3 border-b border-outline-variant/10">
+            <span class="text-xs text-on-surface-variant shrink-0">Tiến độ khóa học</span>
+            <div class="flex-grow h-2 bg-outline-variant/20 rounded-full overflow-hidden">
+              <div class="h-full bg-secondary rounded-full transition-all" style="width:${pct}%"></div>
+            </div>
+            <span class="text-xs font-bold text-secondary shrink-0">${pct}%</span>
+          </div>
+          <!-- Bảng điểm -->
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-surface-low/40">
+                <th class="text-left px-4 py-2.5 text-xs font-semibold text-on-surface-variant uppercase tracking-wide">Bài kiểm tra</th>
+                <th class="text-left px-4 py-2.5 text-xs font-semibold text-on-surface-variant uppercase tracking-wide">Điểm</th>
+                <th class="text-left px-4 py-2.5 text-xs font-semibold text-on-surface-variant uppercase tracking-wide">Kết quả</th>
+                <th class="text-left px-4 py-2.5 text-xs font-semibold text-on-surface-variant uppercase tracking-wide">Ngày làm</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-outline-variant/10">
+              ${tableRows}
+            </tbody>
+          </table>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      console.error(e);
+      container.innerHTML = `<p class="text-sm text-error text-center py-6">Lỗi tải dữ liệu tiến độ.</p>`;
+    }
   }
 
   // ── Profile ───────────────────────────────────────────────────
@@ -1131,7 +1267,131 @@
   }
 
   // Load ngay khi vào trang nếu đang ở tab my-courses
-  if (document.getElementById('sec-my-courses').classList.contains('active')) loadMyCourses();
+  if (document.getElementById('sec-my-courses').classList.contains('active')) {
+    loadMyCourses();
+    loadProgressSummary();
+  }
+
+  // ── Modal kết quả hoàn thành khóa học ─────────────────────
+  async function openCompletionModal(courseId) {
+    const modal   = document.getElementById('completion-modal');
+    const content = document.getElementById('completion-content');
+    modal.classList.remove('hidden');
+    content.innerHTML = `
+      <div class="flex flex-col items-center py-10 text-on-surface-variant">
+        <span class="material-symbols-outlined text-4xl animate-spin mb-2">sync</span>
+        <p class="text-sm">Đang tải...</p>
+      </div>`;
+    try {
+      const res  = await fetch('/api/user/courses/' + courseId + '/completion', { credentials: 'include' });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      const d = json.data;
+
+      // Header khóa
+      const scoreColor = d.avg_score === null ? 'text-on-surface-variant'
+                       : d.avg_score >= 70 ? 'text-green-600'
+                       : d.avg_score >= 50 ? 'text-accent' : 'text-error';
+
+      // Test result chips
+      const testChips = d.test_results.length === 0
+        ? '<p class="text-xs text-on-surface-variant italic">Khóa học không có bài kiểm tra.</p>'
+        : d.test_results.map(t => {
+            if (t.score === null)
+              return `<span class="px-2.5 py-1 rounded-lg text-xs font-medium bg-surface-low text-on-surface-variant border border-outline-variant/30">${t.test_title}: —</span>`;
+            return t.passed
+              ? `<span class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-green-100 text-green-700 border border-green-200">${t.test_title}: ${t.score}% ✓</span>`
+              : `<span class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-red-100 text-error border border-red-200">${t.test_title}: ${t.score}% ✗</span>`;
+          }).join('');
+
+      // Feedback GV
+      const feedbackHtml = d.feedback.length === 0
+        ? '<p class="text-sm text-on-surface-variant italic">Chưa có nhận xét nào.</p>'
+        : d.feedback.map(f => {
+            const date = new Date(f.updated_at).toLocaleDateString('vi-VN');
+            return `<div class="border-l-2 border-secondary pl-3 py-1">
+              <p class="text-xs text-secondary font-semibold mb-0.5">${f.teacher_name} · ${f.lecture_title} · ${date}</p>
+              <p class="text-sm text-on-surface whitespace-pre-line">${f.content}</p>
+            </div>`;
+          }).join('');
+
+      // Materials
+      const materialsHtml = d.materials.length === 0
+        ? '<p class="text-sm text-on-surface-variant italic">Không có tài liệu.</p>'
+        : d.materials.map(m => {
+            const size = m.filesize > 1048576
+              ? (m.filesize/1048576).toFixed(1) + ' MB'
+              : Math.ceil(m.filesize/1024) + ' KB';
+            return `<a href="/${m.filepath}" download="${m.filename}"
+                class="flex items-center gap-3 px-3 py-2.5 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition-colors group">
+              <span class="material-symbols-outlined text-secondary text-lg shrink-0">download</span>
+              <div class="flex-grow min-w-0">
+                <p class="text-sm font-semibold text-on-surface truncate">${m.filename}</p>
+                <p class="text-xs text-on-surface-variant">${m.lecture_title} · ${size}</p>
+              </div>
+            </a>`;
+          }).join('');
+
+      content.innerHTML = `
+        <!-- Kết quả điểm -->
+        <div class="bg-surface-low/60 rounded-2xl p-5 mb-5 flex items-center gap-6">
+          <div class="text-center shrink-0">
+            <p class="text-3xl font-bold ${scoreColor}">${d.avg_score !== null ? d.avg_score + '%' : '—'}</p>
+            <p class="text-xs text-on-surface-variant mt-0.5">Điểm trung bình</p>
+          </div>
+          <div class="w-px h-12 bg-outline-variant/30"></div>
+          <div class="flex-grow">
+            <p class="text-sm font-semibold text-on-surface mb-1">
+              Đã làm ${d.tests_done}/${d.tests_total} bài kiểm tra ·
+              <span class="text-green-600">${d.tests_passed} đạt</span>
+            </p>
+            <div class="flex flex-wrap gap-1.5 mt-2">${testChips}</div>
+          </div>
+        </div>
+
+        <!-- Nhận xét GV -->
+        <div class="mb-5">
+          <p class="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-3">Nhận xét của giảng viên</p>
+          <div class="space-y-3">${feedbackHtml}</div>
+        </div>
+
+        <!-- Tài liệu -->
+        <div>
+          <p class="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-3">Tài liệu khóa học</p>
+          <div class="space-y-2">${materialsHtml}</div>
+        </div>`;
+
+    } catch (e) {
+      content.innerHTML = `<p class="text-sm text-error text-center py-8">Lỗi: ${e.message}</p>`;
+    }
+  }
+
+  function closeCompletionModal() {
+    document.getElementById('completion-modal').classList.add('hidden');
+  }
 </script>
+
+<!-- ── Modal kết quả hoàn thành khóa học ── -->
+<div id="completion-modal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+     onclick="if(event.target===this) closeCompletionModal()">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col">
+    <!-- Header -->
+    <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant/20 shrink-0">
+      <div class="flex items-center gap-2">
+        <span class="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center">
+          <span class="material-symbols-outlined text-blue-600 text-base">workspace_premium</span>
+        </span>
+        <p class="font-bold text-primary text-sm">Kết quả hoàn thành khóa học</p>
+      </div>
+      <button onclick="closeCompletionModal()"
+        class="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-surface-low transition-colors text-on-surface-variant">
+        <span class="material-symbols-outlined text-lg">close</span>
+      </button>
+    </div>
+    <!-- Scrollable content -->
+    <div id="completion-content" class="flex-grow overflow-y-auto px-6 py-5"></div>
+  </div>
+</div>
+
 </body>
 </html>

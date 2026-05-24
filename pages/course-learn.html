@@ -136,8 +136,9 @@
 </div>
 
 <script>
-  const params    = new URLSearchParams(window.location.search);
-  const COURSE_ID = params.get('id');
+  const params         = new URLSearchParams(window.location.search);
+  const COURSE_ID      = params.get('id');
+  const FROM_LECTURE_ID = params.get('from'); // từ test-take: mở bài tiếp theo sau bài này
 
   let _lectures      = [];
   let _tests         = [];
@@ -187,8 +188,17 @@
         document.getElementById('player-placeholder').classList.add('hidden');
         document.getElementById('no-lectures').classList.remove('hidden');
       } else {
-        // Tự động mở bài đầu tiên
-        selectLecture(0);
+        // Nếu có tham số ?from=LECTURE_ID (từ test-take.html "Học tiếp"):
+        // mở bài TIẾP THEO sau bài có ID đó; nếu không có bài tiếp → mở chính bài đó
+        if (FROM_LECTURE_ID) {
+          const fromIdx = lectures.findIndex(l => l.id == FROM_LECTURE_ID);
+          const targetIdx = (fromIdx >= 0 && fromIdx + 1 < lectures.length)
+            ? fromIdx + 1  // bài tiếp theo
+            : (fromIdx >= 0 ? fromIdx : 0);  // bài hiện tại hoặc bài đầu
+          selectLecture(targetIdx);
+        } else {
+          selectLecture(0);
+        }
       }
     } catch (e) {
       console.error(e);

@@ -120,43 +120,93 @@
     </section>
   </main>
 
-  <!-- MODAL XÁC NHẬN ĐĂNG KÝ KHÓA HỌC -->
+  <!-- MODAL ĐĂNG KÝ / THANH TOÁN -->
   <div id="band-modal" class="hidden fixed inset-0 bg-primary/50 z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8">
-      <div class="flex items-start justify-between mb-4">
-        <div>
-          <p class="text-xs font-bold uppercase tracking-widest text-secondary" id="modal-type">IELTS</p>
-          <h3 class="text-xl font-bold text-primary mt-1" id="modal-title">Tên khóa học</h3>
+
+      <!-- STEP 1: Thông tin khóa học -->
+      <div id="modal-step1">
+        <div class="flex items-start justify-between mb-4">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-widest text-secondary" id="modal-type">IELTS</p>
+            <h3 class="text-xl font-bold text-primary mt-1" id="modal-title">Tên khóa học</h3>
+          </div>
+          <button onclick="closeBandModal()" class="text-on-surface-variant hover:text-primary">
+            <span class="material-symbols-outlined">close</span>
+          </button>
         </div>
-        <button onclick="closeBandModal()" class="text-on-surface-variant hover:text-primary">
-          <span class="material-symbols-outlined">close</span>
+        <div class="bg-surface-low rounded-xl p-4 mb-6">
+          <p class="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-1">Học phí</p>
+          <p class="text-2xl font-bold text-primary" id="modal-price">Miễn phí</p>
+        </div>
+        <div class="space-y-2 mb-6 text-sm text-on-surface-variant">
+          <div class="flex items-center gap-2"><span class="material-symbols-outlined text-secondary text-base">check_circle</span> Video bài giảng không giới hạn</div>
+          <div class="flex items-center gap-2"><span class="material-symbols-outlined text-secondary text-base">check_circle</span> Bài kiểm tra sau mỗi video</div>
+          <div class="flex items-center gap-2"><span class="material-symbols-outlined text-secondary text-base">check_circle</span> Tài liệu học đính kèm</div>
+          <div class="flex items-center gap-2"><span class="material-symbols-outlined text-secondary text-base">check_circle</span> Theo dõi tiến độ học tập</div>
+        </div>
+        <div id="modal-err" class="hidden mb-4 text-sm text-error bg-red-50 rounded-lg px-3 py-2"></div>
+        <div class="flex gap-3">
+          <button onclick="closeBandModal()" class="flex-1 border border-outline-variant text-on-surface-variant font-semibold py-3 rounded-lg hover:bg-surface-low transition-colors text-sm">Hủy</button>
+          <button id="btn-confirm-enroll" onclick="confirmEnroll()"
+            class="flex-1 bg-primary text-white font-semibold py-3 rounded-lg hover:opacity-90 transition-opacity text-sm flex items-center justify-center gap-2">
+            <span class="material-symbols-outlined text-base">payments</span>Xác nhận thanh toán
+          </button>
+        </div>
+      </div>
+
+      <!-- STEP 2: QR thanh toán -->
+      <div id="modal-step2" class="hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-base font-bold text-primary">Thanh toán khóa học</h3>
+          <button onclick="closeBandModal()" class="text-on-surface-variant hover:text-primary">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div class="flex justify-center mb-4">
+          <img id="qr-image" src="" alt="QR thanh toán"
+            class="w-52 h-52 rounded-xl border border-outline-variant object-contain" />
+        </div>
+        <div class="bg-surface-low rounded-xl p-4 mb-4 space-y-2.5 text-sm">
+          <div class="flex justify-between items-center">
+            <span class="text-on-surface-variant">Ngân hàng</span>
+            <span class="font-semibold text-on-surface">VCB (Vietcombank)</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-on-surface-variant">Số tài khoản</span>
+            <div class="flex items-center gap-2">
+              <span class="font-semibold text-on-surface">1040615283</span>
+              <button onclick="copyText('1040615283', this)" class="text-xs text-secondary hover:underline">Sao chép</button>
+            </div>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-on-surface-variant">Số tiền</span>
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-on-surface" id="payment-amount">—</span>
+              <button onclick="copyText(document.getElementById('payment-amount').textContent, this)" class="text-xs text-secondary hover:underline">Sao chép</button>
+            </div>
+          </div>
+          <div class="flex justify-between items-start gap-2">
+            <span class="text-on-surface-variant shrink-0">Nội dung CK</span>
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="font-semibold text-on-surface break-all text-right" id="payment-note">—</span>
+              <button onclick="copyText(document.getElementById('payment-note').textContent, this)" class="text-xs text-secondary hover:underline shrink-0">Sao chép</button>
+            </div>
+          </div>
+        </div>
+        <p class="text-xs text-on-surface-variant text-center mb-5">Sau khi chuyển khoản, vui lòng chờ Admin xác nhận trong vòng 24h.</p>
+        <button onclick="confirmPaymentDone()" class="w-full bg-primary text-white font-semibold py-3 rounded-lg hover:opacity-90 transition-opacity text-sm">
+          Xác nhận đã thanh toán
         </button>
       </div>
-      <div class="bg-surface-low rounded-xl p-4 mb-6">
-        <p class="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-1">Học phí</p>
-        <p class="text-2xl font-bold text-primary" id="modal-price">Miễn phí</p>
-      </div>
-      <div class="space-y-2 mb-6 text-sm text-on-surface-variant">
-        <div class="flex items-center gap-2"><span class="material-symbols-outlined text-secondary text-base">check_circle</span> Video bài giảng không giới hạn</div>
-        <div class="flex items-center gap-2"><span class="material-symbols-outlined text-secondary text-base">check_circle</span> Bài kiểm tra sau mỗi video</div>
-        <div class="flex items-center gap-2"><span class="material-symbols-outlined text-secondary text-base">check_circle</span> Tài liệu học đính kèm</div>
-        <div class="flex items-center gap-2"><span class="material-symbols-outlined text-secondary text-base">check_circle</span> Theo dõi tiến độ học tập</div>
-      </div>
-      <div id="modal-err" class="hidden mb-4 text-sm text-error bg-red-50 rounded-lg px-3 py-2"></div>
-      <div class="flex gap-3">
-        <button onclick="closeBandModal()" class="flex-1 border border-outline-variant text-on-surface-variant font-semibold py-3 rounded-lg hover:bg-surface-low transition-colors text-sm">Hủy</button>
-        <button id="btn-confirm-enroll" onclick="confirmEnroll()"
-          class="flex-1 bg-primary text-white font-semibold py-3 rounded-lg hover:opacity-90 transition-opacity text-sm flex items-center justify-center gap-2">
-          <span class="material-symbols-outlined text-base">how_to_reg</span>Xác nhận đăng ký
-        </button>
-      </div>
+
     </div>
   </div>
 
   <!-- FOOTER -->
   <footer class="bg-primary text-white py-8 mt-8">
     <div class="max-w-container mx-auto px-4 md:px-16 text-center text-xs text-blue-200">
-      © 2024 EngPro English Systems. Methodical preparation for global success.
+      © 2026 EngPro English Systems.
     </div>
   </footer>
 
@@ -228,10 +278,14 @@
                     <span class="ml-auto">${c.student_count} học viên</span>
                     <span>${c.lecture_count} bài giảng</span>
                   </div>
-                  <button onclick="handleEnroll(${c.id}, '${c.title.replace(/'/g,"\\'")}', '${typeKey}', '${price}')"
-                    class="w-full py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity">
-                    Đăng ký học
-                  </button>
+                  ${c.enroll_status === 'active' || c.enroll_status === 'completed'
+                    ? `<a href="course-learn.html?id=${c.id}" class="block w-full py-2.5 bg-green-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity text-center">Tiếp tục học</a>`
+                    : c.enroll_status === 'pending'
+                    ? `<button disabled class="w-full py-2.5 bg-outline-variant text-on-surface-variant text-sm font-semibold rounded-xl cursor-not-allowed">Chờ Admin duyệt...</button>`
+                    : c.enroll_status === 'rejected'
+                    ? `<button onclick="handleEnroll(${c.id}, '${c.title.replace(/'/g,"\\'")}', '${typeKey}', '${price}', ${c.price || 0})" class="w-full py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity">Đăng ký lại</button>`
+                    : `<button onclick="handleEnroll(${c.id}, '${c.title.replace(/'/g,"\\'")}', '${typeKey}', '${price}', ${c.price || 0})" class="w-full py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity">Đăng ký học</button>`
+                  }
                 </div>
               </div>
             </div>`;
@@ -245,58 +299,97 @@
     }
 
     let _enrollCourseId = null;
+    let _enrollPriceRaw = 0;
 
-    function handleEnroll(id, title, type, price) {
+    function handleEnroll(id, title, type, price, priceRaw) {
       const user = window.__engproUser;
       if (!user) {
-        // Lưu lại để sau khi login redirect về
         sessionStorage.setItem('after_login', 'courses.html');
         window.location.href = 'login.html';
         return;
       }
       _enrollCourseId = id;
+      _enrollPriceRaw = priceRaw || 0;
       document.getElementById('modal-type').textContent  = type;
       document.getElementById('modal-title').textContent = title;
       document.getElementById('modal-price').textContent = price;
       document.getElementById('modal-err').classList.add('hidden');
+      // reset về step1
+      document.getElementById('modal-step1').classList.remove('hidden');
+      document.getElementById('modal-step2').classList.add('hidden');
       document.getElementById('band-modal').classList.remove('hidden');
     }
 
-    async function confirmEnroll() {
+    function confirmEnroll() {
       if (!_enrollCourseId) return;
-      const btn = document.getElementById('btn-confirm-enroll');
+      // Chỉ hiển thị QR thanh toán — chưa gọi API
+      showPaymentStep();
+    }
+
+    function showPaymentStep() {
+      const user      = window.__engproUser;
+      const email     = (user && user.email) ? user.email : 'user@mail.com';
+      const title     = document.getElementById('modal-title').textContent;
+      const titleKey  = title.replace(/\s+/g, '');
+      const note      = email + '_' + titleKey;
+      const priceText = document.getElementById('modal-price').textContent;
+
+      // VietQR dynamic URL
+      const qrUrl = `https://img.vietqr.io/image/VCB-1040615283-qr_only.jpg`
+        + `?amount=${_enrollPriceRaw}`
+        + `&addInfo=${encodeURIComponent(note)}`
+        + `&accountName=EngPro`;
+
+      document.getElementById('qr-image').src       = qrUrl;
+      document.getElementById('payment-amount').textContent = priceText;
+      document.getElementById('payment-note').textContent   = note;
+
+      document.getElementById('modal-step1').classList.add('hidden');
+      document.getElementById('modal-step2').classList.remove('hidden');
+    }
+
+    function copyText(text, btn) {
+      navigator.clipboard.writeText(text).then(() => {
+        if (btn) { const orig = btn.textContent; btn.textContent = 'Đã sao chép!'; setTimeout(() => btn.textContent = orig, 1500); }
+      });
+    }
+
+    function closeBandModal() {
+      document.getElementById('band-modal').classList.add('hidden');
+      // reset về step1 cho lần mở tiếp
+      document.getElementById('modal-step1').classList.remove('hidden');
+      document.getElementById('modal-step2').classList.add('hidden');
+    }
+
+    async function confirmPaymentDone() {
+      const btn = event.currentTarget;
       btn.disabled = true;
-      btn.innerHTML = '<span class="material-symbols-outlined text-base animate-spin">sync</span>Đang xử lý...';
-      document.getElementById('modal-err').classList.add('hidden');
+      btn.textContent = 'Đang xử lý...';
       try {
         const res  = await fetch('/api/user/enroll/' + _enrollCourseId, {
           method: 'POST', credentials: 'include'
         });
         const json = await res.json();
         if (json.success) {
-          closeBandModal();
           const d = json.data;
+          closeBandModal();
           if (d.already && d.status === 'active') {
-            // Đã được duyệt rồi → vào học luôn
             window.location.href = 'course-learn.html?id=' + _enrollCourseId;
           } else {
             showEnrollSuccess();
+            // reload để cập nhật trạng thái nút
+            setTimeout(() => loadCourses(), 500);
           }
         } else {
-          document.getElementById('modal-err').textContent = json.message || 'Đăng ký thất bại.';
-          document.getElementById('modal-err').classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = 'Xác nhận đã thanh toán';
+          alert(json.message || 'Có lỗi xảy ra, vui lòng thử lại.');
         }
       } catch {
-        document.getElementById('modal-err').textContent = 'Không thể kết nối server.';
-        document.getElementById('modal-err').classList.remove('hidden');
-      } finally {
         btn.disabled = false;
-        btn.innerHTML = '<span class="material-symbols-outlined text-base">how_to_reg</span>Xác nhận đăng ký';
+        btn.textContent = 'Xác nhận đã thanh toán';
+        alert('Không thể kết nối server.');
       }
-    }
-
-    function closeBandModal() {
-      document.getElementById('band-modal').classList.add('hidden');
     }
 
     function showEnrollSuccess() {

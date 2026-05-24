@@ -174,9 +174,10 @@ app.post('/api/auth/login', async (req, res) => {
       'SELECT id,name,email,password,role,status FROM users WHERE email=? LIMIT 1',
       [email.toLowerCase().trim()]
     );
+    if (!user) return err(res, 'Email hoặc mật khẩu không đúng', 401);
     // PHP dùng $2y$, Node bcrypt dùng $2b$ — hai prefix tương đương, cần normalize
     const hash = user.password.replace(/^\$2y\$/, '$2b$');
-    if (!user || !(await bcrypt.compare(password, hash)))
+    if (!(await bcrypt.compare(password, hash)))
       return err(res, 'Email hoặc mật khẩu không đúng', 401);
     if (user.status === 'locked')
       return err(res, 'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Admin.', 403);
@@ -240,23 +241,78 @@ app.post('/api/auth/register', uploadCV.single('cv'), async (req, res) => {
 // ── Public: danh sách khóa học đã được duyệt ──────────────────
 app.get('/api/courses', async (req, res) => {
   try {
-    const { type } = req.query; // ?type=IELTS|TOEFL|TOEIC
+    const { type } = req.query;
+    const userId = req.session?.user?.id || null;
+    const enrollSub = userId
+      ? ',(SELECT status FROM enrollments WHERE course_id=c.id AND user_id=? LIMIT 1) AS enroll_status'
+      : '';
     let sql = `
       SELECT c.id, c.title, c.description, c.price, c.band_from, c.band_to, c.level,
              cat.name AS category_name, cat.type AS category_type,
              u.name  AS teacher_name,
              (SELECT COUNT(*) FROM enrollments WHERE course_id=c.id) AS student_count,
              (SELECT COUNT(*) FROM lectures   WHERE course_id=c.id) AS lecture_count
+             ${enrollSub}
       FROM courses c
       LEFT JOIN categories cat ON cat.id = c.category_id
       LEFT JOIN users      u   ON u.id   = c.teacher_id
       WHERE c.status = 'active'`;
-    const params = [];
+    const params = userId ? [userId] : [];
     if (type) { sql += ' AND cat.type = ?'; params.push(type); }
     sql += ' ORDER BY c.created_at DESC';
     const [rows] = await pool.query(sql, params);
     ok(res, rows);
   } catch (e) { err(res, 'Lỗi hệ thống', 500); }
+});
+
+// GET /api/admin/revenue
+app.get('/api/admin/revenue', async (req, res) => {
+  if (!roleRequired(req, res, 'admin')) return;
+  try {
+    const [[{ total }]] = await pool.query(`
+      SELECT COALESCE(SUM(c.price),0) AS total
+      FROM enrollments e JOIN courses c ON c.id=e.course_id
+      WHERE e.status IN ('active','completed') AND c.price > 0`);
+
+    const [[{ this_month }]] = await pool.query(`
+      SELECT COALESCE(SUM(c.price),0) AS this_month
+      FROM enrollments e JOIN courses c ON c.id=e.course_id
+      WHERE e.status IN ('active','completed') AND c.price > 0
+        AND MONTH(e.enrolled_at)=MONTH(NOW()) AND YEAR(e.enrolled_at)=YEAR(NOW())`);
+
+    const [[{ last_month }]] = await pool.query(`
+      SELECT COALESCE(SUM(c.price),0) AS last_month
+      FROM enrollments e JOIN courses c ON c.id=e.course_id
+      WHERE e.status IN ('active','completed') AND c.price > 0
+        AND MONTH(e.enrolled_at)=MONTH(DATE_SUB(NOW(),INTERVAL 1 MONTH))
+        AND YEAR(e.enrolled_at)=YEAR(DATE_SUB(NOW(),INTERVAL 1 MONTH))`);
+
+    const [monthly] = await pool.query(`
+      SELECT DATE_FORMAT(e.enrolled_at,'%Y-%m') AS month,
+             SUM(c.price) AS revenue, COUNT(*) AS cnt
+      FROM enrollments e JOIN courses c ON c.id=e.course_id
+      WHERE e.status IN ('active','completed') AND c.price > 0
+        AND e.enrolled_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+      GROUP BY month ORDER BY month ASC`);
+
+    const [by_course] = await pool.query(`
+      SELECT c.title, c.price, COUNT(*) AS enrollments, SUM(c.price) AS revenue
+      FROM enrollments e JOIN courses c ON c.id=e.course_id
+      WHERE e.status IN ('active','completed') AND c.price > 0
+      GROUP BY c.id ORDER BY revenue DESC LIMIT 15`);
+
+    const [by_month_course] = await pool.query(`
+      SELECT DATE_FORMAT(e.enrolled_at,'%Y-%m') AS month,
+             c.title AS course_title, c.price,
+             COUNT(*) AS enrollments, SUM(c.price) AS revenue
+      FROM enrollments e JOIN courses c ON c.id=e.course_id
+      WHERE e.status IN ('active','completed') AND c.price > 0
+        AND e.enrolled_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+      GROUP BY month, c.id
+      ORDER BY month ASC, revenue DESC`);
+
+    ok(res, { total, this_month, last_month, monthly, by_course, by_month_course });
+  } catch(e) { console.error(e); err(res,'Lỗi hệ thống',500); }
 });
 
 app.get('/api/admin/stats', async (req, res) => {
@@ -543,6 +599,87 @@ app.route('/api/admin/courses/:id')
       err(res, 'Lỗi hệ thống', 500);
     } finally { conn.release(); }
   });
+
+// GET /api/admin/courses/:id/students — danh sách học sinh đăng ký khóa
+app.get('/api/admin/courses/:id/students', async (req, res) => {
+  if (!roleRequired(req, res, 'admin')) return;
+  try {
+    const [rows] = await pool.query(
+      `SELECT u.id, u.name, u.email, e.status, e.progress_percent, e.enrolled_at
+       FROM enrollments e
+       JOIN users u ON u.id = e.user_id
+       WHERE e.course_id = ?
+       ORDER BY e.enrolled_at DESC`,
+      [req.params.id]
+    );
+    ok(res, rows);
+  } catch (e) { err(res, 'Lỗi hệ thống', 500); }
+});
+
+// GET /api/admin/users/:id/progress — chi tiết khóa học + điểm kiểm tra của 1 sinh viên
+app.get('/api/admin/users/:id/progress', async (req, res) => {
+  if (!roleRequired(req, res, 'admin')) return;
+  try {
+    const uid = req.params.id;
+    const [[user]] = await pool.query(
+      'SELECT id, name, email, status FROM users WHERE id=? AND role="user"', [uid]
+    );
+    if (!user) return err(res, 'Không tìm thấy học viên', 404);
+
+    const [enrollRows] = await pool.query(
+      `SELECT e.course_id, e.status, e.progress_percent, e.enrolled_at,
+              c.title AS course_title, c.price,
+              cat.name AS category_name, cat.type AS category_type
+       FROM enrollments e
+       JOIN courses c ON c.id = e.course_id
+       LEFT JOIN categories cat ON cat.id = c.category_id
+       WHERE e.user_id = ?
+       ORDER BY e.enrolled_at DESC`,
+      [uid]
+    );
+    if (!enrollRows.length) return ok(res, { user, courses: [] });
+
+    const courseIds = enrollRows.map(r => r.course_id);
+    const [testRows] = await pool.query(
+      'SELECT id, course_id, title, pass_percent FROM tests WHERE course_id IN (?)',
+      [courseIds]
+    );
+    const testIds = testRows.map(t => t.id);
+    let resultRows = [];
+    if (testIds.length) {
+      const [rr] = await pool.query(
+        `SELECT tr.test_id, tr.score, tr.passed, tr.submitted_at
+         FROM test_results tr
+         INNER JOIN (
+           SELECT test_id, MAX(submitted_at) AS latest
+           FROM test_results WHERE user_id=? AND test_id IN (?)
+           GROUP BY test_id
+         ) mx ON mx.test_id=tr.test_id AND mx.latest=tr.submitted_at
+         WHERE tr.user_id=?`,
+        [uid, testIds, uid]
+      );
+      resultRows = rr;
+    }
+    const latestByTest = {};
+    resultRows.forEach(r => { latestByTest[r.test_id] = r; });
+
+    const courses = enrollRows.map(e => {
+      const courseTests = testRows.filter(t => t.course_id === e.course_id);
+      const tests = courseTests.map(t => {
+        const r = latestByTest[t.id];
+        return { test_id: t.id, test_title: t.title, pass_percent: t.pass_percent,
+                 score: r?.score ?? null, passed: r?.passed ?? null, submitted_at: r?.submitted_at ?? null };
+      });
+      return {
+        course_id: e.course_id, course_title: e.course_title,
+        category_name: e.category_name, category_type: e.category_type,
+        enroll_status: e.status, progress_percent: e.progress_percent,
+        enrolled_at: e.enrolled_at, price: e.price || 0, tests,
+      };
+    });
+    ok(res, { user, courses });
+  } catch (e) { console.error(e); err(res, 'Lỗi hệ thống', 500); }
+});
 
 // ═════════════════════════════════════════════════════════════
 //  GV – COURSES
@@ -879,6 +1016,33 @@ app.get('/api/user/courses/:id/feedback', async (req, res) => {
 // ═════════════════════════════════════════════════════════════
 //  GV – STUDENTS
 // ═════════════════════════════════════════════════════════════
+// POST /api/gv/enrollments/complete — GV xác nhận học sinh hoàn thành khóa học
+app.post('/api/gv/enrollments/complete', async (req, res) => {
+  const gv = roleRequired(req, res, 'gv');
+  if (!gv) return;
+  const { user_id, course_id } = req.body;
+  if (!user_id || !course_id) return err(res, 'Thiếu tham số');
+  try {
+    // Kiểm tra khóa học thuộc về GV này
+    const [[course]] = await pool.query(
+      'SELECT id FROM courses WHERE id=? AND teacher_id=?', [course_id, gv.id]
+    );
+    if (!course) return err(res, 'Không có quyền', 403);
+    // Kiểm tra học sinh đang active và tiến độ 100%
+    const [[enroll]] = await pool.query(
+      `SELECT id, progress_percent FROM enrollments
+       WHERE user_id=? AND course_id=? AND status='active'`,
+      [user_id, course_id]
+    );
+    if (!enroll) return err(res, 'Không tìm thấy đăng ký active');
+    if (enroll.progress_percent < 100) return err(res, 'Học viên chưa hoàn thành 100%');
+    await pool.query(
+      `UPDATE enrollments SET status='completed' WHERE id=?`, [enroll.id]
+    );
+    ok(res, { message: 'Đã xác nhận hoàn thành' });
+  } catch (e) { console.error(e); err(res, 'Lỗi hệ thống', 500); }
+});
+
 app.get('/api/gv/students', async (req, res) => {
   const user = roleRequired(req, res, 'gv');
   if (!user) return;
@@ -907,7 +1071,7 @@ app.get('/api/gv/results', async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT u.name AS student_name, u.email AS student_email,
-              t.title AS test_title, c.title AS course_title,
+              t.title AS test_title, c.id AS course_id, c.title AS course_title,
               tr.score, tr.passed, tr.submitted_at
        FROM test_results tr
        JOIN users u  ON u.id  = tr.user_id
@@ -989,6 +1153,167 @@ app.get('/api/user/courses', async (req, res) => {
     `, [user.id]);
     ok(res, rows);
   } catch (e) { err(res, 'Lỗi hệ thống', 500); }
+});
+
+// GET /api/user/progress-summary — tiến độ & điểm bài kiểm tra theo từng khóa đã đăng ký
+app.get('/api/user/progress-summary', async (req, res) => {
+  const user = req.session.user;
+  if (!user) return err(res, 'Chưa đăng nhập', 401);
+  try {
+    // Khóa đang học hoặc đã hoàn thành
+    const [enrollRows] = await pool.query(
+      `SELECT e.course_id, e.progress_percent, e.status,
+              c.title AS course_title,
+              cat.name AS category_name, cat.type AS category_type
+       FROM enrollments e
+       JOIN courses c ON c.id = e.course_id
+       LEFT JOIN categories cat ON cat.id = c.category_id
+       WHERE e.user_id = ? AND e.status IN ('active','completed')
+       ORDER BY e.enrolled_at DESC`,
+      [user.id]
+    );
+    if (!enrollRows.length) return ok(res, []);
+
+    const courseIds = enrollRows.map(r => r.course_id);
+
+    // Tất cả bài kiểm tra của các khóa này
+    const [testRows] = await pool.query(
+      `SELECT id, course_id, title, pass_percent FROM tests WHERE course_id IN (?)`,
+      [courseIds]
+    );
+
+    // Kết quả kiểm tra mới nhất cho mỗi (user, test)
+    let resultRows = [];
+    const testIds = testRows.map(t => t.id);
+    if (testIds.length) {
+      const [rr] = await pool.query(
+        `SELECT tr.test_id, tr.score, tr.passed, tr.submitted_at
+         FROM test_results tr
+         INNER JOIN (
+           SELECT test_id, MAX(submitted_at) AS latest
+           FROM test_results WHERE user_id = ? AND test_id IN (?)
+           GROUP BY test_id
+         ) mx ON mx.test_id = tr.test_id AND mx.latest = tr.submitted_at
+         WHERE tr.user_id = ?`,
+        [user.id, testIds, user.id]
+      );
+      resultRows = rr;
+    }
+
+    const latestByTest = {};
+    resultRows.forEach(r => { latestByTest[r.test_id] = r; });
+
+    // Tổng hợp theo khóa
+    const summary = enrollRows.map(e => {
+      const courseTests = testRows.filter(t => t.course_id === e.course_id);
+      const testDetails = courseTests.map(t => {
+        const r = latestByTest[t.id];
+        return {
+          test_id:      t.id,
+          test_title:   t.title,
+          pass_percent: t.pass_percent,
+          score:        r ? r.score        : null,
+          passed:       r ? r.passed       : null,
+          submitted_at: r ? r.submitted_at : null,
+        };
+      });
+      const done   = testDetails.filter(t => t.score !== null);
+      const passed = done.filter(t => t.passed);
+      const avg    = done.length
+        ? Math.round(done.reduce((s, t) => s + t.score, 0) / done.length)
+        : null;
+      return {
+        course_id:        e.course_id,
+        course_title:     e.course_title,
+        category_name:    e.category_name,
+        category_type:    e.category_type,
+        progress_percent: e.progress_percent,
+        enroll_status:    e.status,
+        total_tests:      courseTests.length,
+        done_tests:       done.length,
+        passed_tests:     passed.length,
+        avg_score:        avg,
+        test_details:     testDetails,
+      };
+    });
+
+    ok(res, summary);
+  } catch (e) { console.error(e); err(res, 'Lỗi hệ thống', 500); }
+});
+
+// GET /api/user/courses/:id/completion — xem kết quả hoàn thành (điểm TB, comment GV, tài liệu)
+app.get('/api/user/courses/:id/completion', async (req, res) => {
+  const user = req.session.user;
+  if (!user) return err(res, 'Chưa đăng nhập', 401);
+  const courseId = req.params.id;
+  try {
+    const [[enroll]] = await pool.query(
+      `SELECT e.id, e.status, e.progress_percent, c.title AS course_title,
+              cat.name AS category_name, u.name AS teacher_name
+       FROM enrollments e
+       JOIN courses c ON c.id = e.course_id
+       LEFT JOIN categories cat ON cat.id = c.category_id
+       LEFT JOIN users u ON u.id = c.teacher_id
+       WHERE e.user_id=? AND e.course_id=?`,
+      [user.id, courseId]
+    );
+    if (!enroll) return err(res, 'Chưa đăng ký khóa này', 403);
+
+    // Điểm kiểm tra mới nhất từng bài
+    const [testRows] = await pool.query(
+      `SELECT t.title AS test_title, tr.score, tr.passed, tr.submitted_at
+       FROM tests t
+       LEFT JOIN (
+         SELECT test_id, score, passed, submitted_at
+         FROM test_results
+         WHERE user_id=?
+         ORDER BY submitted_at DESC
+       ) tr ON tr.test_id = t.id
+       WHERE t.course_id=?
+       GROUP BY t.id, t.title, tr.score, tr.passed, tr.submitted_at
+       ORDER BY t.id`,
+      [user.id, courseId]
+    );
+    const done   = testRows.filter(t => t.score !== null);
+    const avg    = done.length ? Math.round(done.reduce((s,t) => s+t.score, 0) / done.length) : null;
+    const passed = done.filter(t => t.passed).length;
+
+    // Nhận xét GV
+    const [feedbackRows] = await pool.query(
+      `SELECT gf.content, gf.updated_at, u.name AS teacher_name, l.title AS lecture_title
+       FROM gv_feedback gf
+       JOIN lectures l ON l.id = gf.lecture_id
+       JOIN users u ON u.id = gf.teacher_id
+       WHERE l.course_id=? AND gf.student_id=?
+       ORDER BY gf.updated_at DESC`,
+      [courseId, user.id]
+    );
+
+    // Tài liệu GV đã upload
+    const [materials] = await pool.query(
+      `SELECT m.filename, m.filepath, m.filesize, m.description, l.title AS lecture_title
+       FROM materials m
+       JOIN lectures l ON l.id = m.lecture_id
+       WHERE l.course_id=?
+       ORDER BY l.order_num, l.id, m.id`,
+      [courseId]
+    );
+
+    ok(res, {
+      course_title: enroll.course_title,
+      category_name: enroll.category_name,
+      teacher_name: enroll.teacher_name,
+      enroll_status: enroll.status,
+      progress_percent: enroll.progress_percent,
+      avg_score: avg,
+      tests_done: done.length,
+      tests_passed: passed,
+      tests_total: testRows.length,
+      test_results: testRows,
+      feedback: feedbackRows,
+      materials,
+    });
+  } catch (e) { console.error(e); err(res, 'Lỗi hệ thống', 500); }
 });
 
 // Chi tiết khóa học + danh sách bài giảng — chỉ cho status=active
@@ -1152,7 +1477,7 @@ app.get('/api/user/tests/:id', async (req, res) => {
   try {
     const [[t]] = await pool.query(
       `SELECT t.id, t.title, t.duration_minutes, t.num_questions, t.pass_percent,
-              t.course_id, c.title AS course_title
+              t.course_id, t.lecture_id, c.title AS course_title
        FROM tests t JOIN courses c ON c.id=t.course_id WHERE t.id=?`,
       [req.params.id]
     );

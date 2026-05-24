@@ -190,7 +190,7 @@
         id="btn-review">Xem đáp án</button>
       <a id="btn-back" href="#"
         class="flex-1 py-2.5 bg-primary text-white font-semibold text-sm rounded-xl
-               hover:opacity-90 transition-opacity text-center">Quay lại</a>
+               hover:opacity-90 transition-opacity text-center">Học tiếp</a>
     </div>
 
     <!-- Review section -->
@@ -485,8 +485,15 @@
     document.getElementById('res-wrong').textContent    = data.total - data.correct;
     document.getElementById('res-pass-pct').textContent = (data.pass_percent || 60) + '%';
 
-    // Back link
-    const backUrl = _source === 'course' ? 'profile.html' : (_test.type === 'luyen_de' ? 'practice.html' : 'mock-test.html');
+    // Back link ("Học tiếp")
+    let backUrl;
+    if (_source === 'course') {
+      // Khi có lecture_id: truyền from=LECTURE_ID để course-learn tự chọn bài tiếp theo
+      backUrl = 'course-learn.html?id=' + _test.course_id
+              + (_test.lecture_id ? '&from=' + _test.lecture_id : '');
+    } else {
+      backUrl = _test.type === 'luyen_de' ? 'practice.html' : 'mock-test.html';
+    }
     document.getElementById('btn-back').href = backUrl;
 
     showView('result');
