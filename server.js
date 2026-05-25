@@ -12,17 +12,17 @@ const fs      = require('fs');
 const XLSX    = require('xlsx');
 
 const app  = express();
-const PORT = 8080;
+const PORT = process.env.PORT || 8080;
 
 // ─────────────────────────────────────────────────────────────
 //  Database pool
 // ─────────────────────────────────────────────────────────────
 const pool = mysql.createPool({
-  host:              '127.0.0.1',
-  port:              3366,
-  user:              'root',
-  password:          '',
-  database:          'engpro',
+  host:              process.env.MYSQLHOST     || '127.0.0.1',
+  port:              process.env.MYSQLPORT     || 3366,
+  user:              process.env.MYSQLUSER     || 'root',
+  password:          process.env.MYSQLPASSWORD || '',
+  database:          process.env.MYSQLDATABASE || 'engpro',
   charset:           'utf8mb4',
   waitForConnections: true,
   connectionLimit:   10,
